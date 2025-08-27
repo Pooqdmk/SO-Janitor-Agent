@@ -1,0 +1,16 @@
+# requirements.txt
+
+# For Data Processing
+pandas
+lxml
+pyarrow
+
+# For Machine Learning & Semantic Search
+sentence-transformers
+faiss-cpu
+numpy
+
+# For the Web API
+fastapi
+uvicorn[standard]
+pydantic

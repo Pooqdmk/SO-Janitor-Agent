@@ -1,0 +1,18 @@
+# Virtual Environment
+agent/
+.venv/
+
+# Large data files
+data/raw/
+data/processed/
+
+# AI model and index files
+*.bin
+*.pkl
+
+# Python cache
+__pycache__/
+*.pyc
+
+# VS Code editor configuration
+.vscode/
