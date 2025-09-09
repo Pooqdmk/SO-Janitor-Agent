@@ -1,29 +1,55 @@
-# Use an official, lightweight Python runtime as a parent image
-# python:3.11-slim is a modern and stable choice.
-FROM python:3.11-slim
+# --- STAGE 1: The Builder Stage ---
+# Installs and then strips the virtual environment to be as small as possible.
+FROM python:3.11.9-slim AS builder
 
-# Set the working directory inside the container to /app
-# All subsequent commands will run from this directory.
 WORKDIR /app
 
-# Copy the requirements.txt file from your project into the container
-COPY requirements.txt .
+# Combine system dependency installation and cleanup in one layer
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential && \
+    rm -rf /var/lib/apt/lists/*
 
-# Install all the Python libraries listed in requirements.txt
-# --no-cache-dir is an optimization to keep the image size smaller.
-RUN pip install --no-cache-dir -r requirements.txt
+# Create and set up the virtual environment
+RUN python -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
 
-# Copy your local code and models into the container
-# This copies the 'src' folder into the container's /app/src directory
-COPY ./src ./src
-# This copies the 'models' folder into the container's /app/models directory
+# Copy requirements file
+COPY requirements_docker.txt .
+
+# --- The Definitive PyTorch Installation Fix ---
+# 1. Install torch by itself from the CPU index, ignoring its dependencies.
+RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu torch --no-deps
+
+# 2. Install the rest of the requirements. Pip will see torch is already installed.
+RUN pip install --no-cache-dir -r requirements_docker.txt
+
+# --- Safe Cleanup ---
+# We are removing tests and caches, but NOT stripping the binaries.
+RUN find /app/venv -type d -name "tests" -exec rm -rf {} + && \
+    find /app/venv -type d -name "__pycache__" -exec rm -rf {} + && \
+    find /app/venv -type f -name "*.pyc" -delete && \
+    rm -rf /root/.cache/pip
+
+
+# --- STAGE 2: The Final Runtime Stage ---
+# Starts fresh and copies only the essential, cleaned components.
+FROM python:3.11.9-slim
+
+WORKDIR /app
+
+# Copy the entire, cleaned virtual environment from the builder stage.
+COPY --from=builder /app/venv /app/venv
+
+# Copy your application code and your AI models.
+COPY ./src/main.py ./src/main.py
 COPY ./models ./models
 
-# Tell Docker which port the application will run on inside the container
+# Set the PATH to use the Python executable from our virtual environment
+ENV PATH="/app/venv/bin:$PATH"
+
+# Expose the port the container will listen on
 EXPOSE 8080
 
-# The command to run when the container starts.
-# This starts the Uvicorn server, making the app accessible on port 8080
-# from anywhere inside the container (--host 0.0.0.0).
+# The command to run when the container starts
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8080"]
 

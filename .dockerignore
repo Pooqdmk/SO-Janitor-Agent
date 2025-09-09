@@ -1,0 +1,36 @@
+# Ignore Python cache and bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore virtual environments
+agent/
+.venv/
+venv/
+.env/
+
+# Ignore logs and temp files
+*.log
+*.tmp
+*.swp
+
+# Ignore editor configs
+.vscode/
+.idea/
+.git
+.gitignore
+
+# Ignore all data by default
+data/
+
+# Ignore large model/training/checkpoint files
+*.pt
+*.bin
+*.pkl
+*.npy
+*.npz
+
+# ✅ Explicitly keep only what’s needed
+!models/faiss_index.bin
+!models/id_map.pkl
