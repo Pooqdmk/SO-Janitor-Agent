@@ -1,19 +1,20 @@
 # src/main.py
 
-import faiss
-import pickle
-from sentence_transformers import SentenceTransformer
-import numpy as np
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List
 from pathlib import Path
+import faiss
+import pickle
+from sentence_transformers import SentenceTransformer
+import numpy as np
+from contextlib import asynccontextmanager
 
 # --- CONFIGURATION & Pydantic Models ---
 
 # These constants define our "Confidence Zones" for scoring.
 # You can tune these values to make the scores more or less strict.
-HIGH_CONFIDENCE_DISTANCE = 0.3  # Anything below this distance is a very strong match.
+HIGH_CONFIDENCE_DISTANCE = 0.3   # Anything below this distance is a very strong match.
 MEDIUM_CONFIDENCE_DISTANCE = 1.0 # Distances between HIGH and MEDIUM are moderate matches.
 
 class QuestionRequest(BaseModel):
@@ -30,30 +31,52 @@ class APIResponse(BaseModel):
     results: List[SimilarQuestion]
 
 
-# --- App Initialization & Model Loading ---
-print("🚀 Starting API server...")
+# --- Global State & Lifespan Manager for Model Loading ---
+# We use a dictionary to hold our models. It will be populated on startup.
+ml_models = {}
 
-script_location = Path(__file__).resolve().parent
-root_directory = script_location.parent
-models_dir = root_directory / "models"
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # --- Code to run on startup ---
+    print("🚀 Starting API server... Loading models into memory.")
+    
+    # --- Robust Pathing ---
+    # Get the absolute path to the directory where this script is located
+    SCRIPT_DIR = Path(__file__).parent.resolve()
+    # Define model paths relative to the script's location
+    models_dir = SCRIPT_DIR.parent / "models"
+    
+    faiss_index_path = models_dir / "faiss_index.bin"
+    id_map_path = models_dir / "id_map.pkl"
+    model_name = 'all-MiniLM-L6-v2'
+    
+    # Load all models and store them in the ml_models dictionary
+    print("Step 1/3: Loading sentence-transformer model...")
+    ml_models["sentence_transformer"] = SentenceTransformer(model_name)
+    
+    print(f"Step 2/3: Loading FAISS index from {faiss_index_path}...")
+    ml_models["faiss_index"] = faiss.read_index(str(faiss_index_path))
+    
+    print(f"Step 3/3: Loading ID map from {id_map_path}...")
+    with open(id_map_path, 'rb') as f:
+        ml_models["id_map"] = pickle.load(f)
 
+    print("✅ Models loaded successfully. API is ready!")
+    
+    yield
+    
+    # --- Code to run on shutdown (optional) ---
+    print("Shutting down API server...")
+    ml_models.clear()
+
+
+# --- App Initialization with Lifespan ---
 app = FastAPI(
     title="StackGuardian AI Search API",
     description="An API to find semantically similar questions from Stack Overflow.",
     version="1.0.0",
+    lifespan=lifespan
 )
-
-print("Step 1/3: Loading sentence-transformer model ('all-MiniLM-L6-v2')...")
-model = SentenceTransformer('all-MiniLM-L6-v2')
-
-print("Step 2/3: Loading FAISS index...")
-index = faiss.read_index(str(models_dir / "faiss_index.bin"))
-
-print("Step 3/3: Loading ID map...")
-with open(models_dir / "id_map.pkl", 'rb') as f:
-    id_map = pickle.load(f)
-
-print("✅ Models loaded successfully. API is ready!")
 
 
 # --- API Endpoint Definition ---
@@ -62,6 +85,11 @@ def find_similar_questions(request: QuestionRequest):
     """
     Accepts a question text in a JSON body and returns the top_k most similar questions.
     """
+    # Retrieve models from our global state
+    model = ml_models["sentence_transformer"]
+    index = ml_models["faiss_index"]
+    id_map = ml_models["id_map"]
+
     query_embedding = model.encode([request.text])
     query_embedding = np.float32(query_embedding)
 
